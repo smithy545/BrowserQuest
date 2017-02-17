@@ -160,7 +160,7 @@ module.exports = World = cls.Class.extend({
                 var area = new MobArea(a.id, a.nb, a.type, a.x, a.y, a.width, a.height, self);
                 area.spawnMobs();
                 area.onEmpty(self.handleEmptyMobArea.bind(self, area));
-                
+
                 self.mobAreas.push(area);
             });
             
@@ -240,6 +240,7 @@ module.exports = World = cls.Class.extend({
             entities = _.keys(this.groups[player.group].entities);
             entities = _.reject(entities, function(id) { return id == player.id; });
             entities = _.map(entities, function(id) { return parseInt(id); });
+
             if(entities) {
                 this.pushToPlayer(player, new Messages.List(entities));
             }
@@ -315,7 +316,11 @@ module.exports = World = cls.Class.extend({
         for(var id in this.outgoingQueues) {
             if(this.outgoingQueues[id].length > 0) {
                 connection = this.server.getConnection(id);
-                connection.send(this.outgoingQueues[id]);
+
+                for(var i in this.outgoingQueues[id]) {
+                    connection.emit.apply(connection, this.outgoingQueues[id][i]);
+                }
+
                 this.outgoingQueues[id] = [];
             }
         }

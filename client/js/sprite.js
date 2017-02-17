@@ -59,7 +59,7 @@ define(['jquery', 'animation', 'sprites'], function($, Animation, sprites) {
     	    canvas.width = width;
     	    canvas.height = height;
     	    ctx.drawImage(this.image, 0, 0, width, height);
-    	    
+
     	    try {
         	    spriteData = ctx.getImageData(0, 0, width, height);
 

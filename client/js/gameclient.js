@@ -1,5 +1,5 @@
 
-define(['player', 'entityfactory', 'lib/bison'], function(Player, EntityFactory, BISON) {
+define(['player', 'entityfactory', 'lib/socket.io'], function(Player, EntityFactory, io) {
 
     var GameClient = Class.extend({
         init: function(host, port) {
@@ -18,7 +18,7 @@ define(['player', 'entityfactory', 'lib/bison'], function(Player, EntityFactory,
             this.handlers[Types.Messages.ATTACK] = this.receiveAttack;
             this.handlers[Types.Messages.SPAWN] = this.receiveSpawn;
             this.handlers[Types.Messages.DESPAWN] = this.receiveDespawn;
-            this.handlers[Types.Messages.SPAWN_BATCH] = this.receiveSpawnBatch;
+            //this.handlers[Types.Messages.SPAWN_BATCH] = this.receiveSpawnBatch; I don't know why this is here
             this.handlers[Types.Messages.HEALTH] = this.receiveHealth;
             this.handlers[Types.Messages.CHAT] = this.receiveChat;
             this.handlers[Types.Messages.EQUIP] = this.receiveEquipItem;
@@ -32,7 +32,6 @@ define(['player', 'entityfactory', 'lib/bison'], function(Player, EntityFactory,
             this.handlers[Types.Messages.HP] = this.receiveHitPoints;
             this.handlers[Types.Messages.BLINK] = this.receiveBlink;
         
-            this.useBison = false;
             this.enable();
         },
     
@@ -45,168 +44,74 @@ define(['player', 'entityfactory', 'lib/bison'], function(Player, EntityFactory,
         },
         
         connect: function(dispatcherMode) {
-            var url = "ws://"+ this.host +":"+ this.port +"/",
+            var url = "http://"+ this.host +":"+ this.port +"/",
                 self = this;
-            
+
             log.info("Trying to connect to server : "+url);
 
-            if(window.MozWebSocket) {
-                this.connection = new MozWebSocket(url);
-            } else {
-                this.connection = new WebSocket(url);
-            }
-            
-            if(dispatcherMode) {
-                this.connection.onmessage = function(e) {
-                    var reply = JSON.parse(e.data);
+            this.connection = io(url);
 
-                    if(reply.status === 'OK') {
-                        self.dispatched_callback(reply.host, reply.port);
-                    } else if(reply.status === 'FULL') {
-                        alert("BrowserQuest is currently at maximum player population. Please retry later.");
-                    } else {
-                        alert("Unknown error while connecting to BrowserQuest.");
-                    }
-                };
-            } else {
-                this.connection.onopen = function(e) {
-                    log.info("Connected to server "+self.host+":"+self.port);
-                };
-
-                this.connection.onmessage = function(e) {
-                    if(e.data === "go") {
-                        if(self.connected_callback) {
-                            self.connected_callback();
-                        }
-                        return;
-                    }
-                    if(e.data === 'timeout') {
-                        self.isTimeout = true;
-                        return;
-                    }
-                    
-                    self.receiveMessage(e.data);
-                };
-
-                this.connection.onerror = function(e) {
-                    log.error(e, true);
-                };
-
-                this.connection.onclose = function() {
-                    log.debug("Connection closed");
-                    $('#container').addClass('error');
-                    
-                    if(self.disconnected_callback) {
-                        if(self.isTimeout) {
-                            self.disconnected_callback("You have been disconnected for being inactive for too long");
-                        } else {
-                            self.disconnected_callback("The connection to BrowserQuest has been lost");
-                        }
-                    }
-                };
-            }
-        },
-
-        sendMessage: function(json) {
-            var data;
-            if(this.connection.readyState === 1) {
-                if(this.useBison) {
-                    data = BISON.encode(json);
+            for(event in this.handlers) {
+                if(_.isFunction(this.handlers[event])) {
+                    this.connection.on(event, this.handlers[event].bind(this));
                 } else {
-                    data = JSON.stringify(json);
+                    log.error("Invalid event handler for: " + event);
                 }
-                this.connection.send(data);
             }
-        },
 
-        receiveMessage: function(message) {
-            var data, action;
-        
-            if(this.isListening) {
-                if(this.useBison) {
-                    data = BISON.decode(message);
-                } else {
-                    data = JSON.parse(message);
+            this.connection.on('connect', function(e) {
+                log.info("Connected to server "+self.host+":"+self.port);
+
+                if(self.connected_callback) {
+                    self.connected_callback();
                 }
+            });
 
-                log.debug("data: " + message);
+            this.connection.on('error', function(e) {
+                log.error(e, true);
+            });
 
-                if(data instanceof Array) {
-                    if(data[0] instanceof Array) {
-                        // Multiple actions received
-                        this.receiveActionBatch(data);
+            this.connection.on('disconnect', function() {
+                log.debug("Connection closed");
+                $('#container').addClass('error');
+                
+                if(self.disconnected_callback) {
+                    if(self.isTimeout) {
+                        self.disconnected_callback("You have been disconnected for being inactive for too long");
                     } else {
-                        // Only one action received
-                        this.receiveAction(data);
+                        self.disconnected_callback("The connection to BrowserQuest has been lost");
                     }
                 }
-            }
-        },
-    
-        receiveAction: function(data) {
-            var action = data[0];
-            if(this.handlers[action] && _.isFunction(this.handlers[action])) {
-                this.handlers[action].call(this, data);
-            }
-            else {
-                log.error("Unknown action : " + action);
-            }
-        },
-    
-        receiveActionBatch: function(actions) {
-            var self = this;
-
-            _.each(actions, function(action) {
-                self.receiveAction(action);
             });
         },
     
-        receiveWelcome: function(data) {
-            var id = data[1],
-                name = data[2],
-                x = data[3],
-                y = data[4],
-                hp = data[5];
-        
+        receiveWelcome: function(id, name, x, y, hp) {
             if(this.welcome_callback) {
                 this.welcome_callback(id, name, x, y, hp);
             }
         },
     
-        receiveMove: function(data) {
-            var id = data[1],
-                x = data[2],
-                y = data[3];
-        
+        receiveMove: function(id, x, y) {
             if(this.move_callback) {
                 this.move_callback(id, x, y);
             }
         },
     
-        receiveLootMove: function(data) {
-            var id = data[1], 
-                item = data[2];
-        
+        receiveLootMove: function(id, item) {
             if(this.lootmove_callback) {
                 this.lootmove_callback(id, item);
             }
         },
     
-        receiveAttack: function(data) {
-            var attacker = data[1], 
-                target = data[2];
-        
+        receiveAttack: function(attacker, target) {
             if(this.attack_callback) {
                 this.attack_callback(attacker, target);
             }
         },
     
-        receiveSpawn: function(data) {
-            var id = data[1],
-                kind = data[2],
-                x = data[3],
-                y = data[4];
-        
+        receiveSpawn: function(id, kind, x, y) {
+            var data = arguments;
+
             if(Types.isItem(kind)) {
                 var item = EntityFactory.createEntity(kind, id);
             
@@ -251,19 +156,16 @@ define(['player', 'entityfactory', 'lib/bison'], function(Player, EntityFactory,
             }
         },
     
-        receiveDespawn: function(data) {
-            var id = data[1];
-        
+        receiveDespawn: function(id) {        
             if(this.despawn_callback) {
                 this.despawn_callback(id);
             }
         },
     
-        receiveHealth: function(data) {
-            var points = data[1],
-                isRegen = false;
+        receiveHealth: function(points, regen) {
+            var isRegen = false;
         
-            if(data[2]) {
+            if(regen) {
                 isRegen = true;
             }
         
@@ -272,101 +174,71 @@ define(['player', 'entityfactory', 'lib/bison'], function(Player, EntityFactory,
             }
         },
     
-        receiveChat: function(data) {
-            var id = data[1],
-                text = data[2];
-        
+        receiveChat: function(id, text) {
             if(this.chat_callback) {
                 this.chat_callback(id, text);
             }
         },
     
-        receiveEquipItem: function(data) {
-            var id = data[1],
-                itemKind = data[2];
-        
+        receiveEquipItem: function(id, itemKind) {
             if(this.equip_callback) {
                 this.equip_callback(id, itemKind);
             }
         },
     
-        receiveDrop: function(data) {
-            var mobId = data[1],
-                id = data[2],
-                kind = data[3];
-        
+        receiveDrop: function(mobId, id, kind, playersInvolved) {
             var item = EntityFactory.createEntity(kind, id);
             item.wasDropped = true;
-            item.playersInvolved = data[4];
+            item.playersInvolved = playersInvolved;
         
             if(this.drop_callback) {
                 this.drop_callback(item, mobId);
             }
         },
     
-        receiveTeleport: function(data) {
-            var id = data[1],
-                x = data[2],
-                y = data[3];
-        
+        receiveTeleport: function(id, x, y) {
             if(this.teleport_callback) {
                 this.teleport_callback(id, x, y);
             }
         },
     
-        receiveDamage: function(data) {
-            var id = data[1],
-                dmg = data[2];
-        
+        receiveDamage: function(id, dmg) {
             if(this.dmg_callback) {
                 this.dmg_callback(id, dmg);
             }
         },
     
-        receivePopulation: function(data) {
-            var worldPlayers = data[1],
-                totalPlayers = data[2];
-        
+        receivePopulation: function(worldPlayers, totalPlayers) {
             if(this.population_callback) {
                 this.population_callback(worldPlayers, totalPlayers);
             }
         },
     
-        receiveKill: function(data) {
-            var mobKind = data[1];
-        
+        receiveKill: function(mobKind) {
             if(this.kill_callback) {
                 this.kill_callback(mobKind);
             }
         },
     
-        receiveList: function(data) {
-            data.shift();
-        
+        receiveList: function(args) {
             if(this.list_callback) {
-                this.list_callback(data);
+                this.list_callback(arguments);
             }
         },
     
-        receiveDestroy: function(data) {
-            var id = data[1];
-        
+        receiveDestroy: function(id) {        
             if(this.destroy_callback) {
                 this.destroy_callback(id);
             }
         },
     
-        receiveHitPoints: function(data) {
-            var maxHp = data[1];
-        
+        receiveHitPoints: function(maxHp) {        
             if(this.hp_callback) {
                 this.hp_callback(maxHp);
             }
         },
     
-        receiveBlink: function(data) {
-            var id = data[1];
-        
+        receiveBlink: function(id) {
             if(this.blink_callback) {
                 this.blink_callback(id);
             }
@@ -465,78 +337,61 @@ define(['player', 'entityfactory', 'lib/bison'], function(Player, EntityFactory,
         },
 
         sendHello: function(player) {
-            this.sendMessage([Types.Messages.HELLO,
-                              player.name,
-                              Types.getKindFromString(player.getSpriteName()),
-                              Types.getKindFromString(player.getWeaponName())]);
+            this.connection.emit(Types.Messages.HELLO, player.name,
+                Types.getKindFromString(player.getSpriteName()),
+                Types.getKindFromString(player.getWeaponName()) );
         },
 
         sendMove: function(x, y) {
-            this.sendMessage([Types.Messages.MOVE,
-                              x,
-                              y]);
+            this.connection.emit(Types.Messages.MOVE, x, y);
         },
     
         sendLootMove: function(item, x, y) {
-            this.sendMessage([Types.Messages.LOOTMOVE,
-                              x,
-                              y,
-                              item.id]);
+            this.connection.emit(Types.Messages.LOOTMOVE, item.id, x, y);
         },
     
         sendAggro: function(mob) {
-            this.sendMessage([Types.Messages.AGGRO,
-                              mob.id]);
+            this.connection.emit(Types.Messages.AGGRO, mob.id);
         },
     
         sendAttack: function(mob) {
-            this.sendMessage([Types.Messages.ATTACK,
-                              mob.id]);
+            this.connection.emit(Types.Messages.ATTACK, mob.id);
         },
     
         sendHit: function(mob) {
-            this.sendMessage([Types.Messages.HIT,
-                              mob.id]);
+            this.connection.emit(Types.Messages.HIT, mob.id);
         },
     
         sendHurt: function(mob) {
-            this.sendMessage([Types.Messages.HURT,
-                              mob.id]);
+            this.connection.emit(Types.Messages.HURT, mob.id);
         },
     
         sendChat: function(text) {
-            this.sendMessage([Types.Messages.CHAT,
-                              text]);
+            this.connection.emit(Types.Messages.CHAT, text);
         },
     
         sendLoot: function(item) {
-            this.sendMessage([Types.Messages.LOOT,
-                              item.id]);
+            this.connection.emit(Types.Messages.LOOT, item.id);
         },
     
         sendTeleport: function(x, y) {
-            this.sendMessage([Types.Messages.TELEPORT,
-                              x,
-                              y]);
+            this.connection.emit(Types.Messages.TELEPORT, x, y);
         },
     
         sendWho: function(ids) {
-            ids.unshift(Types.Messages.WHO);
-            this.sendMessage(ids);
+            this.connection.emit(Types.Messages.WHO, ids);
         },
     
         sendZone: function() {
-            this.sendMessage([Types.Messages.ZONE]);
+            this.connection.emit(Types.Messages.ZONE);
         },
     
         sendOpen: function(chest) {
-            this.sendMessage([Types.Messages.OPEN,
-                              chest.id]);
+            this.connection.emit(Types.Messages.OPEN, chest.id);
         },
     
         sendCheck: function(id) {
-            this.sendMessage([Types.Messages.CHECK,
-                              id]);
+            this.connection.emit(Types.Messages.CHECK, id);
         }
     });
     

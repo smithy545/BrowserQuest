@@ -94,9 +94,9 @@ function main(config) {
         });
     }
     
-    process.on('uncaughtException', function (e) {
+/*    process.on('uncaughtException', function (e) {
         log.error('uncaughtException: ' + e);
-    });
+    });*/
 }
 
 function getWorldDistribution(worlds) {
