@@ -1,4 +1,4 @@
-BrowserQuest
+BrowserQuest-Rework
 ============
 
 This is a rework of the original mozilla/BrowserQuest repository using socket.io for web sockets
