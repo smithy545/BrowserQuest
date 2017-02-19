@@ -1,9 +1,10 @@
 BrowserQuest
 ============
 
-This is a rework of the original mozilla/BrowserQuest repository using socket.io for web sockets.
-I did this because the original relied on some repositories that no longer worked or exist.
-You might run into bugs due to the transition but in my testing it seems to work pretty well.
+This is a rework of the original mozilla/BrowserQuest repository using socket.io for web sockets
+instead of using their previous library for websockets. I did this because the original relied on
+some repositories that no longer worked or exist. You might run into bugs due to the transition
+but in my testing it seems to work pretty well.
 
 
 Documentation
